@@ -26,7 +26,7 @@ st.set_page_config(
 
 DB_PATH = "scans.db"
 FREE_SCANS_PER_MONTH = 3
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = "gemini-3.5-flash"
 
 # ----------------------------------------------------------------------------
 # STYLE (design chaleureux, mobile-first)
