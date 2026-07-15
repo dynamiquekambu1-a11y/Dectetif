@@ -333,14 +333,7 @@ with tab_scan:
     if uploaded_file is not None:
         st.image(uploaded_file, use_container_width=True)
 
-    identify_disabled = uploaded_file is None or remaining <= 0
-
-    if remaining <= 0 and uploaded_file is not None:
-        st.warning(
-            "Tu as atteint tes 3 scans gratuits ce mois-ci. "
-            "Passe en illimité pour continuer à identifier tes objets 👇"
-        )
-        st.button("🔓 Débloquer les scans illimités", use_container_width=True)
+    identify_disabled = uploaded_file is None
 
     if st.button("🔎 Identifier cet objet", type="primary", disabled=identify_disabled, use_container_width=True):
         if "GEMINI_API_KEY" not in st.secrets:
