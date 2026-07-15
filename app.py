@@ -26,7 +26,7 @@ st.set_page_config(
 
 DB_PATH = "scans.db"
 FREE_SCANS_PER_MONTH = 3
-MODEL_NAME = "gemini-3.5-flash"
+MODEL_NAME = "gemini-3.1-flash-lite"
 
 # ----------------------------------------------------------------------------
 # STYLE (design chaleureux, mobile-first)
@@ -355,7 +355,10 @@ with tab_scan:
                 st.session_state.last_result = data
                 st.rerun()
             except Exception as e:
-                st.error(f"Erreur pendant l'identification : {e}")
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    st.warning("⏳ Trop de scans d'un coup ! Attends environ 30 secondes et réessaie.")
+                else:
+                    st.error(f"Erreur pendant l'identification : {e}")
 
     if st.session_state.last_result:
         data = st.session_state.last_result
