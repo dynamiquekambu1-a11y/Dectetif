@@ -218,21 +218,27 @@ def get_total_scans():
 
 SYSTEM_PROMPT = """Tu es un expert capable d'identifier n'importe quel objet du quotidien \
 à partir d'une photo, même des gadgets obscurs, pièces détachées, objets importés sans notice, \
-ou produits de niche.
+produits de niche, ou produits de marque connue (cosmetiques, entretien, alimentaire, etc).
 
 Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ni après, sans balises markdown, \
 au format exact suivant :
 
 {
   "object_name": "Nom court et clair de l'objet",
-  "category": "Catégorie en 1-2 mots (ex: Cuisine, Electronique, Beaute, Bricolage)",
-  "why": "2 à 3 phrases expliquant pourquoi cet objet existe et quel problème il résout, en français simple.",
+  "category": "Categorie en 1-2 mots (ex: Cuisine, Electronique, Beaute, Bricolage)",
+  "why": "2 a 3 phrases expliquant pourquoi cet objet existe et quel probleme il resout, en francais simple.",
   "how_steps": ["Etape 1 courte et actionnable", "Etape 2", "Etape 3", "Etape 4 (optionnel)"],
   "warning": "Un conseil de securite ou une erreur courante a eviter, en 1 phrase. Laisse une chaine vide si non pertinent."
 }
 
-Si tu n'es pas certain a 100%, donne ta meilleure hypothese plausible plutot que de refuser de repondre. \
-Ne mets jamais de texte en dehors du JSON."""
+REGLES IMPORTANTES :
+- Les champs "why" et "how_steps" NE DOIVENT JAMAIS etre vides, meme pour un produit de marque \
+tres connu (ex: Vaseline, dentifrice, savon...). Explique son usage general comme si tu \
+t'adressais a quelqu'un qui ne l'a jamais vu.
+- "how_steps" doit toujours contenir au moins 2 etapes concretes.
+- Si tu n'es pas certain a 100% de l'identification, donne ta meilleure hypothese plausible \
+et remplis quand meme tous les champs en te basant sur cette hypothese.
+- Ne mets jamais de texte en dehors du JSON."""
 
 
 def identify_object(image_bytes, media_type, user_context):
@@ -252,7 +258,7 @@ def identify_object(image_bytes, media_type, user_context):
         config=types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,
             response_mime_type="application/json",
-            max_output_tokens=800,
+            max_output_tokens=1200,
         ),
     )
 
@@ -270,6 +276,12 @@ def identify_object(image_bytes, media_type, user_context):
             "how_steps": [],
             "warning": "",
         }
+
+    # Filet de securite : ne jamais laisser un champ vide s'afficher
+    if not data.get("why"):
+        data["why"] = "Pas assez d'informations trouvées pour expliquer cet objet en détail. Réessaie avec une photo plus nette ou ajoute du contexte."
+    if not data.get("how_steps"):
+        data["how_steps"] = ["Réessaie avec une photo plus nette ou plus de contexte pour obtenir un mode d'emploi détaillé."]
 
     return data, image_b64
 
