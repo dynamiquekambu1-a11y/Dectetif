@@ -27,7 +27,6 @@ st.set_page_config(
 DB_PATH = "scans.db"
 FREE_SCANS_PER_MONTH = 3
 VISION_MODEL = "gemini-3.1-flash-lite"
-EXPLAIN_MODEL = "gemini-3.5-flash"
 
 # ----------------------------------------------------------------------------
 # STYLE (design chaleureux, mobile-first)
@@ -217,83 +216,38 @@ def get_total_scans():
 # APPEL IA — 2 ETAPES (vision pour identifier, texte pour expliquer)
 # ----------------------------------------------------------------------------
 
-VISION_PROMPT = """Tu es un expert capable d'identifier n'importe quel objet du quotidien \
-a partir d'une photo, meme des gadgets obscurs, pieces detachees, objets importes sans notice, \
-produits de niche, ou produits de marque connue.
+IDENTIFY_PROMPT = """Tu es un expert capable d'identifier n'importe quel objet du quotidien a \
+partir d'une photo, meme des gadgets obscurs, pieces detachees, objets importes sans notice, \
+produits de niche, ou produits de marque connue (cosmetiques, entretien, alimentaire, etc).
 
-Si tu n'es pas certain a 100%, donne ta meilleure hypothese plausible plutot que de refuser."""
+Explique ensuite a quoi il sert et comment l'utiliser, pour quelqu'un qui le decouvre pour la \
+premiere fois. C'est une question generale de connaissance grand public, pas un avis medical.
 
-VISION_SCHEMA = {
-    "type": "OBJECT",
-    "properties": {
-        "object_name": {"type": "STRING", "description": "Nom court et clair de l'objet (marque si visible)"},
-        "category": {"type": "STRING", "description": "Categorie en 1-2 mots (ex: Cuisine, Electronique, Beaute, Bricolage)"},
-    },
-    "required": ["object_name", "category"],
-}
+Reponds UNIQUEMENT dans ce format texte exact, avec ces 4 marqueurs, rien avant ni apres, \
+chaque marqueur sur sa propre ligne :
 
-EXPLAIN_PROMPT = """Tu es un assistant qui explique a quoi sert un objet ou un produit et comment \
-l'utiliser, pour quelqu'un qui le decouvre pour la premiere fois. C'est une question generale de \
-connaissance grand public, pas un avis medical.
-
-Utilise la recherche Google pour trouver des informations reelles et a jour sur ce produit \
-precis (notice officielle, usage courant, avis, precautions), surtout s'il s'agit d'une marque \
-connue (ex: Vaseline, Nivea, un medicament courant, un gadget vendu en ligne...).
-
-Reponds UNIQUEMENT dans ce format texte exact, avec ces marqueurs, rien avant ni apres :
-
+NOM: <nom court et clair de l'objet, marque si visible>
+CATEGORIE: <1-2 mots, ex: Cuisine, Electronique, Beaute, Bricolage>
 POURQUOI: <2 a 3 phrases expliquant pourquoi ce produit existe et quel probleme il resout>
 COMMENT: <etape 1> | <etape 2> | <etape 3>
 ATTENTION: <un conseil pratique ou une erreur courante a eviter en une phrase, ou "aucun">
 
 REGLES IMPORTANTES :
-- POURQUOI et COMMENT ne doivent JAMAIS etre vides, meme pour un produit tres connu.
+- Si tu n'es pas certain a 100% de l'identification, donne ta meilleure hypothese plausible \
+plutot que de refuser de repondre.
+- NOM, POURQUOI et COMMENT ne doivent JAMAIS etre vides, meme pour un produit de marque tres \
+connue (ex: Vaseline, dentifrice, savon, creme...). Donne l'usage general grand public.
 - COMMENT doit contenir au moins 2 etapes separees par le caractere |
-- Ne mets aucun texte en dehors de ces 3 lignes."""
+- Ne mets aucun texte en dehors de ces 4 lignes, aucune balise markdown."""
 
 
-def call_gemini_json(client, model, system_prompt, contents, max_tokens, schema=None):
-    config_kwargs = dict(
-        system_instruction=system_prompt,
-        max_output_tokens=max_tokens,
-    )
-    if schema:
-        config_kwargs["response_mime_type"] = "application/json"
-        config_kwargs["response_schema"] = schema
-
-    response = client.models.generate_content(
-        model=model,
-        contents=contents,
-        config=types.GenerateContentConfig(**config_kwargs),
-    )
-    raw_text = (response.text or "").strip()
-    cleaned = re.sub(r"^```json|```$", "", raw_text, flags=re.MULTILINE).strip()
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        return {}
-
-
-def call_gemini_grounded(client, model, system_prompt, contents, max_tokens):
-    """Appel avec recherche Google activee (gratuite) — pas de mode JSON, l'outil de
-    recherche et le JSON strict ne sont pas compatibles ensemble sur l'API Gemini."""
-    response = client.models.generate_content(
-        model=model,
-        contents=contents,
-        config=types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            max_output_tokens=max_tokens,
-            tools=[types.Tool(google_search=types.GoogleSearch())],
-        ),
-    )
-    return (response.text or "").strip()
-
-
-def parse_explain_text(raw_text):
+def parse_identify_text(raw_text):
     def extract(marker, text):
         match = re.search(rf"{marker}\s*:\s*(.+?)(?=\n[A-Z]+\s*:|\Z)", text, re.DOTALL)
         return match.group(1).strip() if match else ""
 
+    name = extract("NOM", raw_text)
+    category = extract("CATEGORIE", raw_text)
     why = extract("POURQUOI", raw_text)
     comment_raw = extract("COMMENT", raw_text)
     warning = extract("ATTENTION", raw_text)
@@ -302,53 +256,39 @@ def parse_explain_text(raw_text):
     if warning.lower() in ("aucun", "aucune", ""):
         warning = ""
 
-    return {"why": why, "how_steps": how_steps, "warning": warning}
+    return {
+        "object_name": name,
+        "category": category,
+        "why": why,
+        "how_steps": how_steps,
+        "warning": warning,
+    }
 
 
 def identify_object(image_bytes, media_type, user_context):
     client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
-    user_text = "Identifie cet objet."
+    user_text = "Identifie cet objet et explique-le."
     if user_context:
         user_text += f" Contexte donne par l'utilisateur : {user_context}"
 
-    # Etape 1 : identification visuelle (modele rapide, gros quota gratuit, schema force)
-    vision_data = call_gemini_json(
-        client,
-        VISION_MODEL,
-        VISION_PROMPT,
-        [types.Part.from_bytes(data=image_bytes, mime_type=media_type), user_text],
-        max_tokens=300,
-        schema=VISION_SCHEMA,
+    response = client.models.generate_content(
+        model=VISION_MODEL,
+        contents=[types.Part.from_bytes(data=image_bytes, mime_type=media_type), user_text],
+        config=types.GenerateContentConfig(
+            system_instruction=IDENTIFY_PROMPT,
+            max_output_tokens=1200,
+        ),
     )
-
-    object_name = vision_data.get("object_name") or "Objet non identifie clairement"
-    category = vision_data.get("category") or "Inconnu"
-
-    # Etape 2 : explication avec recherche Google gratuite pour des infos reelles
-    explain_input = f"Objet : {object_name}. Categorie : {category}."
-    if user_context:
-        explain_input += f" Contexte : {user_context}."
-
-    raw_explain = call_gemini_grounded(
-        client,
-        EXPLAIN_MODEL,
-        EXPLAIN_PROMPT,
-        explain_input,
-        max_tokens=1000,
-    )
-    explain_data = parse_explain_text(raw_explain)
-
-    data = {
-        "object_name": object_name,
-        "category": category,
-        "why": explain_data.get("why", ""),
-        "how_steps": explain_data.get("how_steps", []),
-        "warning": explain_data.get("warning", ""),
-    }
+    raw_text = (response.text or "").strip()
+    data = parse_identify_text(raw_text)
 
     # Filet de securite : ne jamais laisser un champ vide s'afficher
+    if not data["object_name"]:
+        data["object_name"] = "Objet non identifié clairement"
+    if not data["category"]:
+        data["category"] = "Inconnu"
     if not data["why"]:
         data["why"] = "Pas assez d'informations trouvées pour expliquer cet objet en détail. Réessaie avec une photo plus nette ou ajoute du contexte."
     if not data["how_steps"]:
