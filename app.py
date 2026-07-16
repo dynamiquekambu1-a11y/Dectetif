@@ -80,12 +80,21 @@ st.markdown(
             margin-bottom: 16px;
             box-shadow: 0 2px 14px rgba(0,0,0,0.06);
             border: 1px solid #F1F1F1;
+            color: #1F2937;
+        }
+
+        .result-card p,
+        .result-card li,
+        .result-card ol,
+        .result-card ul {
+            color: #1F2937;
         }
 
         .result-card h4 {
             margin-top: 0;
             margin-bottom: 8px;
             font-size: 1.05rem;
+            color: #1F2937;
         }
 
         .object-name {
@@ -130,6 +139,7 @@ st.markdown(
             padding: 10px 14px;
             border-radius: 8px;
             font-size: 0.92rem;
+            color: #7C2D12;
         }
     </style>
     """,
