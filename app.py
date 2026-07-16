@@ -9,6 +9,7 @@ import sqlite3
 import base64
 import json
 import re
+import os
 from datetime import datetime, date
 from google import genai
 from google.genai import types
@@ -17,9 +18,14 @@ from google.genai import types
 # CONFIG GENERALE
 # ----------------------------------------------------------------------------
 
+LOGO_PATH = "logo.png"
+_page_icon = "🔍"
+if os.path.exists(LOGO_PATH):
+    _page_icon = LOGO_PATH
+
 st.set_page_config(
     page_title="C'est Quoi Ça ?",
-    page_icon="🔍",
+    page_icon=_page_icon,
     layout="centered",
     initial_sidebar_state="collapsed",
 )
@@ -27,6 +33,131 @@ st.set_page_config(
 DB_PATH = "scans.db"
 FREE_SCANS_PER_MONTH = 3
 VISION_MODEL = "gemini-3.1-flash-lite"
+
+# ----------------------------------------------------------------------------
+# TRADUCTIONS (FR / EN)
+# ----------------------------------------------------------------------------
+
+TRANSLATIONS = {
+    "fr": {
+        "title": "🔍 C'est Quoi Ça ?",
+        "subtitle": "Prends une photo. Sais ce que c'est, pourquoi, et comment t'en servir — en 10 secondes.",
+        "stat_scans": "📦 {n} objets identifiés",
+        "stat_free": "🎟️ {remaining}/{total} scans gratuits ce mois",
+        "tab_scanner": "📸 Scanner",
+        "tab_history": "🗂️ Ma collection",
+        "tab_info": "ℹ️ Infos",
+        "uploader_label": "Prends ou choisis une photo de l'objet",
+        "context_label": "Contexte (optionnel)",
+        "context_placeholder": "Ex: reçu de ma tante, acheté sur Temu, trouvé dans le garage...",
+        "missing_key": "⚠️ Clé API manquante. Ajoute `GEMINI_API_KEY` dans les secrets de ton app (Settings → Secrets sur Streamlit Cloud). Clé gratuite sur aistudio.google.com.",
+        "identify_button": "🔎 Identifier cet objet",
+        "spinner_text": "L'IA regarde ton objet...",
+        "rate_limit_warning": "⏳ Trop de scans d'un coup ! Attends environ 30 secondes et réessaie.",
+        "generic_error": "Erreur pendant l'identification : {e}",
+        "why_header": "🤔 Pourquoi ça existe",
+        "how_header": "🛠️ Comment l'utiliser",
+        "warning_header": "⚠️ Attention à",
+        "scan_another": "🔄 Scanner un autre objet",
+        "export_button": "📤 Exporter ce résultat",
+        "export_why": "Pourquoi",
+        "export_how": "Comment l'utiliser",
+        "history_empty": "Aucun objet scanné pour l'instant. Va dans l'onglet Scanner pour commencer !",
+        "history_category": "**Catégorie :**",
+        "history_why": "**Pourquoi :**",
+        "history_how": "**Comment l'utiliser :**",
+        "lang_label": "Langue",
+        "about_title": "À propos",
+        "about_text": (
+            "**C'est Quoi Ça ?** t'aide à identifier n'importe quel objet en une photo : "
+            "ce que c'est, pourquoi ça existe, et comment l'utiliser.\n\n"
+            "Contact : [dynamiquekambu1@gmail.com](mailto:dynamiquekambu1@gmail.com)"
+        ),
+        "privacy_title": "Politique de confidentialité",
+        "privacy_text": (
+            "Les photos que tu envoies sont utilisées uniquement pour l'identification de l'objet "
+            "et sont stockées dans l'historique de l'application (« Ma collection »).\n\n"
+            "L'identification est réalisée par l'API Gemini de Google. Sur l'offre gratuite, Google "
+            "peut utiliser les contenus envoyés pour améliorer ses modèles — voir les "
+            "[conditions Google Gemini API](https://ai.google.dev/gemini-api/terms).\n\n"
+            "Aucune donnée n'est vendue à des tiers. Pour toute question, contacte "
+            "[dynamiquekambu1@gmail.com](mailto:dynamiquekambu1@gmail.com)."
+        ),
+        "terms_title": "Conditions d'utilisation",
+        "terms_text": (
+            "En utilisant cette application, tu acceptes que les informations fournies par l'IA "
+            "sont données à titre indicatif et peuvent contenir des erreurs — vérifie toujours les "
+            "informations importantes (sécurité, santé) auprès d'une source officielle.\n\n"
+            "L'application est fournie « telle quelle », sans garantie."
+        ),
+        "stats_title": "📊 Statistiques d'usage",
+        "stats_year": "Année",
+        "stats_visits": "Ouvertures de l'app",
+        "stats_scans": "Objets identifiés",
+    },
+    "en": {
+        "title": "🔍 What Is This?",
+        "subtitle": "Take a photo. Know what it is, why it exists, and how to use it — in 10 seconds.",
+        "stat_scans": "📦 {n} objects identified",
+        "stat_free": "🎟️ {remaining}/{total} free scans this month",
+        "tab_scanner": "📸 Scanner",
+        "tab_history": "🗂️ My collection",
+        "tab_info": "ℹ️ Info",
+        "uploader_label": "Take or choose a photo of the object",
+        "context_label": "Context (optional)",
+        "context_placeholder": "E.g.: gift from a relative, bought on Temu, found in the garage...",
+        "missing_key": "⚠️ Missing API key. Add `GEMINI_API_KEY` to your app secrets (Settings → Secrets on Streamlit Cloud). Free key at aistudio.google.com.",
+        "identify_button": "🔎 Identify this object",
+        "spinner_text": "The AI is looking at your object...",
+        "rate_limit_warning": "⏳ Too many scans at once! Wait about 30 seconds and try again.",
+        "generic_error": "Error during identification: {e}",
+        "why_header": "🤔 Why it exists",
+        "how_header": "🛠️ How to use it",
+        "warning_header": "⚠️ Watch out for",
+        "scan_another": "🔄 Scan another object",
+        "export_button": "📤 Export this result",
+        "export_why": "Why",
+        "export_how": "How to use it",
+        "history_empty": "No object scanned yet. Head to the Scanner tab to get started!",
+        "history_category": "**Category:**",
+        "history_why": "**Why:**",
+        "history_how": "**How to use it:**",
+        "lang_label": "Language",
+        "about_title": "About",
+        "about_text": (
+            "**What Is This?** helps you identify any object from a photo: "
+            "what it is, why it exists, and how to use it.\n\n"
+            "Contact: [dynamiquekambu1@gmail.com](mailto:dynamiquekambu1@gmail.com)"
+        ),
+        "privacy_title": "Privacy Policy",
+        "privacy_text": (
+            "Photos you upload are used only to identify the object and are stored in the "
+            "app's history (\"My collection\").\n\n"
+            "Identification is performed by Google's Gemini API. On the free tier, Google may use "
+            "submitted content to improve its models — see the "
+            "[Gemini API terms](https://ai.google.dev/gemini-api/terms).\n\n"
+            "No data is sold to third parties. For any question, contact "
+            "[dynamiquekambu1@gmail.com](mailto:dynamiquekambu1@gmail.com)."
+        ),
+        "terms_title": "Terms of Use",
+        "terms_text": (
+            "By using this app, you agree that the information provided by the AI is for "
+            "informational purposes only and may contain errors — always verify important "
+            "information (safety, health) with an official source.\n\n"
+            "The app is provided \"as is\", without warranty."
+        ),
+        "stats_title": "📊 Usage statistics",
+        "stats_year": "Year",
+        "stats_visits": "App opens",
+        "stats_scans": "Objects identified",
+    },
+}
+
+
+def t(key, **kwargs):
+    lang = st.session_state.get("lang", "fr")
+    text = TRANSLATIONS.get(lang, TRANSLATIONS["fr"]).get(key, key)
+    return text.format(**kwargs) if kwargs else text
 
 # ----------------------------------------------------------------------------
 # STYLE (design chaleureux, mobile-first)
@@ -167,8 +298,42 @@ def get_conn():
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS visits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
     conn.commit()
     return conn
+
+
+def log_visit():
+    """Enregistre une visite une seule fois par session utilisateur."""
+    if st.session_state.get("visit_logged"):
+        return
+    conn = get_conn()
+    conn.execute("INSERT INTO visits (created_at) VALUES (?)", (datetime.now().isoformat(),))
+    conn.commit()
+    conn.close()
+    st.session_state.visit_logged = True
+
+
+def get_stats_by_year():
+    conn = get_conn()
+    visits_rows = conn.execute(
+        "SELECT strftime('%Y', created_at) as y, COUNT(*) FROM visits GROUP BY y ORDER BY y DESC"
+    ).fetchall()
+    scans_rows = conn.execute(
+        "SELECT strftime('%Y', created_at) as y, COUNT(*) FROM scans GROUP BY y ORDER BY y DESC"
+    ).fetchall()
+    conn.close()
+    visits_by_year = {y: c for y, c in visits_rows}
+    scans_by_year = {y: c for y, c in scans_rows}
+    years = sorted(set(visits_by_year) | set(scans_by_year), reverse=True)
+    return [(y, visits_by_year.get(y, 0), scans_by_year.get(y, 0)) for y in years]
 
 
 def save_scan(context, data, image_b64):
@@ -316,14 +481,34 @@ if "view" not in st.session_state:
     st.session_state.view = "scanner"
 if "last_result" not in st.session_state:
     st.session_state.last_result = None
+if "lang" not in st.session_state:
+    st.session_state.lang = "fr"
+
+log_visit()
 
 # ----------------------------------------------------------------------------
 # HEADER
 # ----------------------------------------------------------------------------
 
-st.markdown('<div class="hero-title">🔍 C\'est Quoi Ça ?</div>', unsafe_allow_html=True)
+col_logo, col_lang = st.columns([3, 1])
+with col_logo:
+    if os.path.exists(LOGO_PATH):
+        st.image(LOGO_PATH, width=64)
+with col_lang:
+    lang_choice = st.selectbox(
+        t("lang_label"),
+        options=["fr", "en"],
+        format_func=lambda x: "🇫🇷 Français" if x == "fr" else "🇬🇧 English",
+        index=0 if st.session_state.lang == "fr" else 1,
+        label_visibility="collapsed",
+    )
+    if lang_choice != st.session_state.lang:
+        st.session_state.lang = lang_choice
+        st.rerun()
+
+st.markdown(f'<div class="hero-title">{t("title")}</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="hero-sub">Prends une photo. Sais ce que c\'est, pourquoi, et comment t\'en servir — en 10 secondes.</div>',
+    f'<div class="hero-sub">{t("subtitle")}</div>',
     unsafe_allow_html=True,
 )
 
@@ -333,13 +518,13 @@ remaining = max(0, FREE_SCANS_PER_MONTH - scans_this_month)
 
 col_a, col_b = st.columns(2)
 with col_a:
-    st.markdown(f'<span class="stat-pill">📦 {total_scans} objets identifiés</span>', unsafe_allow_html=True)
+    st.markdown(f'<span class="stat-pill">{t("stat_scans", n=total_scans)}</span>', unsafe_allow_html=True)
 with col_b:
-    st.markdown(f'<span class="stat-pill">🎟️ {remaining}/{FREE_SCANS_PER_MONTH} scans gratuits ce mois</span>', unsafe_allow_html=True)
+    st.markdown(f'<span class="stat-pill">{t("stat_free", remaining=remaining, total=FREE_SCANS_PER_MONTH)}</span>', unsafe_allow_html=True)
 
 st.write("")
 
-tab_scan, tab_history = st.tabs(["📸 Scanner", "🗂️ Ma collection"])
+tab_scan, tab_history, tab_info = st.tabs([t("tab_scanner"), t("tab_history"), t("tab_info")])
 
 # ----------------------------------------------------------------------------
 # ONGLET SCANNER
@@ -347,21 +532,17 @@ tab_scan, tab_history = st.tabs(["📸 Scanner", "🗂️ Ma collection"])
 
 with tab_scan:
     if "GEMINI_API_KEY" not in st.secrets:
-        st.error(
-            "⚠️ Clé API manquante. Ajoute `GEMINI_API_KEY` dans les secrets "
-            "de ton app (Settings → Secrets sur Streamlit Cloud, ou fichier "
-            "`.streamlit/secrets.toml` en local). Clé gratuite sur aistudio.google.com."
-        )
+        st.error(t("missing_key"))
 
     uploaded_file = st.file_uploader(
-        "Prends ou choisis une photo de l'objet",
+        t("uploader_label"),
         type=["jpg", "jpeg", "png", "webp"],
         label_visibility="collapsed",
     )
 
     context_input = st.text_input(
-        "Contexte (optionnel)",
-        placeholder="Ex: reçu de ma tante, acheté sur Temu, trouvé dans le garage...",
+        t("context_label"),
+        placeholder=t("context_placeholder"),
     )
 
     if uploaded_file is not None:
@@ -369,114 +550,4 @@ with tab_scan:
 
     identify_disabled = uploaded_file is None
 
-    if st.button("🔎 Identifier cet objet", type="primary", disabled=identify_disabled, use_container_width=True):
-        if "GEMINI_API_KEY" not in st.secrets:
-            st.stop()
-
-        with st.spinner("L'IA regarde ton objet..."):
-            image_bytes = uploaded_file.getvalue()
-            media_type = uploaded_file.type or "image/jpeg"
-            try:
-                data, image_b64 = identify_object(image_bytes, media_type, context_input)
-                save_scan(context_input, data, image_b64)
-                st.session_state.last_result = data
-                st.rerun()
-            except Exception as e:
-                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                    st.warning("⏳ Trop de scans d'un coup ! Attends environ 30 secondes et réessaie.")
-                else:
-                    st.error(f"Erreur pendant l'identification : {e}")
-
-    if st.session_state.last_result:
-        data = st.session_state.last_result
-        st.markdown("---")
-        st.markdown(
-            f"""
-            <div class="result-card">
-                <div class="object-category">{data.get('category', '')}</div>
-                <div class="object-name">{data.get('object_name', '')}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            f"""
-            <div class="result-card">
-                <h4>🤔 Pourquoi ça existe</h4>
-                <p>{data.get('why', '')}</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        steps_html = "".join(f"<li>{s}</li>" for s in data.get("how_steps", []))
-        st.markdown(
-            f"""
-            <div class="result-card">
-                <h4>🛠️ Comment l'utiliser</h4>
-                <ol>{steps_html}</ol>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        if data.get("warning"):
-            st.markdown(
-                f"""
-                <div class="result-card">
-                    <h4>⚠️ Attention à</h4>
-                    <div class="warn-box">{data.get('warning')}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🔄 Scanner un autre objet", use_container_width=True):
-                st.session_state.last_result = None
-                st.rerun()
-        with col2:
-            share_text = (
-                f"🔍 {data.get('object_name','')}\n\n"
-                f"Pourquoi : {data.get('why','')}\n\n"
-                f"Comment l'utiliser :\n" + "\n".join(f"- {s}" for s in data.get("how_steps", []))
-            )
-            st.download_button(
-                "📤 Exporter ce résultat",
-                data=share_text,
-                file_name="cest_quoi_ca.txt",
-                use_container_width=True,
-            )
-
-# ----------------------------------------------------------------------------
-# ONGLET HISTORIQUE
-# ----------------------------------------------------------------------------
-
-with tab_history:
-    history = get_history()
-
-    if not history:
-        st.info("Aucun objet scanné pour l'instant. Va dans l'onglet Scanner pour commencer !")
-    else:
-        for row in history:
-            scan_id, created_at, name, category, why_text, how_steps_json, warning_text, image_b64 = row
-            with st.expander(f"{name}  —  {created_at[:16].replace('T', ' ')}"):
-                c1, c2 = st.columns([1, 2])
-                with c1:
-                    if image_b64:
-                        st.image(base64.b64decode(image_b64), use_container_width=True)
-                with c2:
-                    st.markdown(f"**Catégorie :** {category}")
-                    st.markdown(f"**Pourquoi :** {why_text}")
-                    try:
-                        steps = json.loads(how_steps_json)
-                    except (json.JSONDecodeError, TypeError):
-                        steps = []
-                    if steps:
-                        st.markdown("**Comment l'utiliser :**")
-                        for s in steps:
-                            st.markdown(f"- {s}")
-                    if warning_text:
-                        st.markdown(f"⚠️ {warning_text}")
+    if st.button(t("identify_button"), 
