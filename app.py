@@ -10,9 +10,11 @@ import base64
 import json
 import re
 import os
+import urllib.parse
 from datetime import datetime, date
 from google import genai
 from google.genai import types
+import streamlit.components.v1 as components
 
 # ----------------------------------------------------------------------------
 # CONFIG GENERALE
@@ -30,9 +32,36 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# ----------------------------------------------------------------------------
+# GOOGLE ANALYTICS
+# ----------------------------------------------------------------------------
+
+GA_MEASUREMENT_ID = "G-0MJ8GNR9QZ"
+
+components.html(
+    f"""
+    <script async src="https://www.googletagmanager.com/gtag/js?id={GA_MEASUREMENT_ID}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){{ dataLayer.push(arguments); }}
+      gtag('js', new Date());
+      gtag('config', '{GA_MEASUREMENT_ID}');
+    </script>
+    """,
+    height=0,
+    width=0,
+)
+
 DB_PATH = "scans.db"
-FREE_SCANS_PER_MONTH = 3
 VISION_MODEL = "gemini-3.1-flash-lite"
+FREE_SCANS_PER_DAY = 2
+WHATSAPP_NUMBER = "27750556027"
+
+PLANS = [
+    {"name": "Starter", "price": 5, "quota": 20},
+    {"name": "Pro", "price": 10, "quota": 60},
+    {"name": "Illimité", "price": 15, "quota": None},
+]
 
 # ----------------------------------------------------------------------------
 # TRADUCTIONS (FR / EN)
@@ -43,7 +72,7 @@ TRANSLATIONS = {
         "title": "🔍 C'est Quoi Ça ?",
         "subtitle": "Prends une photo. Sais ce que c'est, pourquoi, et comment t'en servir — en 10 secondes.",
         "stat_scans": "📦 {n} objets identifiés",
-        "stat_free": "🎟️ {remaining}/{total} scans gratuits ce mois",
+        "stat_free": "🎟️ {remaining}/{total} scans gratuits aujourd'hui",
         "tab_scanner": "📸 Scanner",
         "tab_history": "🗂️ Ma collection",
         "tab_info": "ℹ️ Infos",
@@ -118,12 +147,30 @@ TRANSLATIONS = {
         "admin_no_claims": "Aucune demande en attente.",
         "admin_approve_button": "✅ Marquer comme payé",
         "admin_claim_approved": "Compte activé !",
+        "home_step1": "Prends une photo de l'objet",
+        "home_step2": "L'IA l'analyse en quelques secondes",
+        "home_step3": "Tu obtiens quoi, pourquoi, comment",
+        "home_mock_category": "BEAUTÉ",
+        "home_mock_name": "Exemple : Vaseline",
+        "home_mock_why": "\"Hydrate et protège la peau en formant une barrière contre l'humidité...\"",
+        "home_cta": "🚀 Essayer maintenant",
+        "back_home": "← Accueil",
+        "already_paid_title": "Déjà payé ?",
+        "already_paid_button": "Vérifier mon email",
+        "not_premium_yet": "Pas encore activé — patiente le temps qu'on vérifie ton paiement.",
+        "premium_active_msg": "✅ Compte illimité actif ({email})",
+        "need_email_text": "Entre ton email pour générer un résultat (ça sert juste à compter tes scans gratuits, pas de mot de passe).",
+        "plan_quota": "{n} scans/mois",
+        "plan_unlimited": "Illimité",
+        "pay_button": "💬 Payer via WhatsApp",
+        "admin_activate_title": "Activer un compte manuellement",
+        "admin_plan_label": "Plan",
     },
     "en": {
         "title": "🔍 What Is This?",
         "subtitle": "Take a photo. Know what it is, why it exists, and how to use it — in 10 seconds.",
         "stat_scans": "📦 {n} objects identified",
-        "stat_free": "🎟️ {remaining}/{total} free scans this month",
+        "stat_free": "🎟️ {remaining}/{total} free scans today",
         "tab_scanner": "📸 Scanner",
         "tab_history": "🗂️ My collection",
         "tab_info": "ℹ️ Info",
@@ -198,6 +245,24 @@ TRANSLATIONS = {
         "admin_no_claims": "No pending requests.",
         "admin_approve_button": "✅ Mark as paid",
         "admin_claim_approved": "Account activated!",
+        "home_step1": "Take a photo of the object",
+        "home_step2": "The AI analyzes it in seconds",
+        "home_step3": "You get what, why, how",
+        "home_mock_category": "BEAUTY",
+        "home_mock_name": "Example: Vaseline",
+        "home_mock_why": "\"Hydrates and protects skin by forming a moisture barrier...\"",
+        "home_cta": "🚀 Try it now",
+        "back_home": "← Home",
+        "already_paid_title": "Already paid?",
+        "already_paid_button": "Check my email",
+        "not_premium_yet": "Not activated yet — please wait while we verify your payment.",
+        "premium_active_msg": "✅ Unlimited account active ({email})",
+        "need_email_text": "Enter your email to generate a result (only used to track your free scans, no password needed).",
+        "plan_quota": "{n} scans/month",
+        "plan_unlimited": "Unlimited",
+        "pay_button": "💬 Pay via WhatsApp",
+        "admin_activate_title": "Activate an account manually",
+        "admin_plan_label": "Plan",
     },
 }
 
@@ -252,7 +317,7 @@ st.markdown(
         .stat-pill {
             display: inline-block;
             background: #FFF1E6;
-            color: #C2410C;
+            color: #C2410C !important;
             border-radius: 999px;
             padding: 7px 18px;
             font-weight: 700;
@@ -300,7 +365,7 @@ st.markdown(
 
         .object-category {
             display: inline-block;
-            color: #EA580C;
+            color: #EA580C !important;
             background: #FFF1E6;
             font-weight: 700;
             font-size: 0.78rem;
@@ -374,15 +439,82 @@ st.markdown(
         [data-testid="stMarkdownContainer"] table,
         [data-testid="stMarkdownContainer"] th,
         [data-testid="stMarkdownContainer"] td,
-        [data-testid="stMarkdownContainer"] strong {
-            color: #1F2937;
+        [data-testid="stMarkdownContainer"] strong,
+        [data-testid="stMarkdownContainer"] span,
+        [data-testid="stText"],
+        [data-testid="stWidgetLabel"] p,
+        [data-testid="stCaptionContainer"],
+        .stAlert p,
+        .stAlert div {
+            color: #1F2937 !important;
         }
 
         [data-testid="stMarkdownContainer"] a {
-            color: #EA580C;
+            color: #EA580C !important;
         }
 
-        [data-testid="stExpander"] summary {
+        [data-testid="stExpander"] summary,
+        [data-testid="stExpander"] summary span,
+        [data-testid="stExpander"] summary p {
+            color: #1F2937 !important;
+        }
+
+        input, textarea {
+            color: #1F2937 !important;
+        }
+
+        .step-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            margin: 1.4rem 0;
+            flex-wrap: wrap;
+        }
+
+        .step-card {
+            background: #FFFFFF;
+            border: 1px solid #F1F1F1;
+            border-radius: 16px;
+            padding: 16px 10px;
+            text-align: center;
+            width: 105px;
+            box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+        }
+
+        .step-emoji {
+            font-size: 1.8rem;
+        }
+
+        .step-num {
+            display: inline-block;
+            background: #EA580C;
+            color: white !important;
+            font-weight: 800;
+            font-size: 0.72rem;
+            width: 18px;
+            height: 18px;
+            line-height: 18px;
+            border-radius: 999px;
+            margin: 4px 0;
+        }
+
+        .step-text {
+            font-size: 0.78rem;
+            color: #4B5563 !important;
+            line-height: 1.3;
+        }
+
+        .step-arrow {
+            color: #FDBA74;
+            font-size: 1.3rem;
+        }
+
+        .mock-result {
+            background: #FFFFFF;
+            border-radius: 20px;
+            padding: 20px 22px;
+            border: 1px dashed #FDBA74;
             color: #1F2937;
         }
     </style>
@@ -424,71 +556,75 @@ def get_conn():
         """
         CREATE TABLE IF NOT EXISTS premium_emails (
             email TEXT PRIMARY KEY,
-            activated_at TEXT NOT NULL
+            activated_at TEXT NOT NULL,
+            plan TEXT,
+            monthly_quota INTEGER
         )
         """
     )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS payment_claims (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at TEXT NOT NULL,
-            email TEXT NOT NULL,
-            transaction_code TEXT,
-            status TEXT DEFAULT 'pending'
-        )
-        """
-    )
-    # Migration douce : ajoute la colonne email si la base existait deja sans elle
-    try:
-        conn.execute("ALTER TABLE scans ADD COLUMN email TEXT")
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass
+    # Migration douce : ajoute les colonnes si la base existait deja sans elles
+    for stmt in (
+        "ALTER TABLE scans ADD COLUMN email TEXT",
+        "ALTER TABLE premium_emails ADD COLUMN plan TEXT",
+        "ALTER TABLE premium_emails ADD COLUMN monthly_quota INTEGER",
+    ):
+        try:
+            conn.execute(stmt)
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
     conn.commit()
     return conn
 
 
-def is_premium(email):
+def get_premium_info(email):
+    """Retourne (plan, quota) si premium, sinon None. quota=None = illimite."""
     if not email:
-        return False
+        return None
     conn = get_conn()
-    row = conn.execute("SELECT 1 FROM premium_emails WHERE email = ?", (email,)).fetchone()
+    row = conn.execute(
+        "SELECT plan, monthly_quota FROM premium_emails WHERE email = ?", (email,)
+    ).fetchone()
     conn.close()
-    return row is not None
+    return row
 
 
-def activate_premium(email):
+def is_premium(email):
+    return get_premium_info(email) is not None
+
+
+def activate_premium(email, plan, quota):
     conn = get_conn()
     conn.execute(
-        "INSERT OR IGNORE INTO premium_emails (email, activated_at) VALUES (?, ?)",
-        (email, datetime.now().isoformat()),
-    )
-    conn.execute(
-        "UPDATE payment_claims SET status = 'approved' WHERE email = ? AND status = 'pending'",
-        (email,),
-    )
-    conn.commit()
-    conn.close()
-
-
-def submit_payment_claim(email, transaction_code):
-    conn = get_conn()
-    conn.execute(
-        "INSERT INTO payment_claims (created_at, email, transaction_code) VALUES (?, ?, ?)",
-        (datetime.now().isoformat(), email, transaction_code),
+        "INSERT INTO premium_emails (email, activated_at, plan, monthly_quota) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(email) DO UPDATE SET plan=excluded.plan, monthly_quota=excluded.monthly_quota",
+        (email, datetime.now().isoformat(), plan, quota),
     )
     conn.commit()
     conn.close()
 
 
-def get_pending_claims():
+def get_scans_today(email):
     conn = get_conn()
-    rows = conn.execute(
-        "SELECT id, created_at, email, transaction_code FROM payment_claims WHERE status = 'pending' ORDER BY id DESC"
-    ).fetchall()
+    today_prefix = date.today().isoformat()
+    count = conn.execute(
+        "SELECT COUNT(*) FROM scans WHERE email = ? AND created_at LIKE ?",
+        (email, f"{today_prefix}%"),
+    ).fetchone()[0]
     conn.close()
-    return rows
+    return count
+
+
+def get_scans_this_month(email):
+    conn = get_conn()
+    month_prefix = date.today().strftime("%Y-%m")
+    count = conn.execute(
+        "SELECT COUNT(*) FROM scans WHERE email = ? AND created_at LIKE ?",
+        (email, f"{month_prefix}%"),
+    ).fetchone()[0]
+    conn.close()
+    return count
+
 
 
 def log_visit():
@@ -654,10 +790,11 @@ def identify_object(image_bytes, media_type, user_context):
     return data, image_b64
 
 
-
 # ----------------------------------------------------------------------------
 # ETAT DE SESSION
 # ----------------------------------------------------------------------------
+
+EMAIL_REGEX = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 
 if "view" not in st.session_state:
     st.session_state.view = "scanner"
@@ -670,78 +807,167 @@ if "user_email" not in st.session_state:
 
 log_visit()
 
-# ----------------------------------------------------------------------------
-# PORTE EMAIL (identification legere, sans mot de passe)
-# ----------------------------------------------------------------------------
-
-EMAIL_REGEX = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
-
-if not st.session_state.user_email:
-    if os.path.exists(LOGO_PATH):
-        st.image(LOGO_PATH, width=64)
-    st.markdown(f'<div class="hero-title">{t("title")}</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="hero-sub">{t("email_gate_text")}</div>', unsafe_allow_html=True)
-
-    email_input = st.text_input(t("email_input_label"), placeholder="toi@exemple.com")
-    if st.button(t("email_submit"), type="primary", use_container_width=True):
-        if re.match(EMAIL_REGEX, email_input.strip()):
-            st.session_state.user_email = email_input.strip().lower()
-            st.rerun()
-        else:
-            st.warning(t("email_invalid"))
-    st.stop()
-
 user_email = st.session_state.user_email
-user_is_premium = is_premium(user_email)
+
+
+def get_usage_status(email):
+    """Retourne (is_premium, remaining, quota) ; quota=None => illimite."""
+    if not email:
+        return False, FREE_SCANS_PER_DAY, FREE_SCANS_PER_DAY
+    info = get_premium_info(email)
+    if info:
+        plan, quota = info
+        if quota is None:
+            return True, None, None
+        used = get_scans_this_month(email)
+        return True, max(0, quota - used), quota
+    used = get_scans_today(email)
+    return False, max(0, FREE_SCANS_PER_DAY - used), FREE_SCANS_PER_DAY
+
+
+user_is_premium, remaining, quota = get_usage_status(user_email)
 
 # ----------------------------------------------------------------------------
-# HEADER
+# SIDEBAR (navigation + infos + plans + admin)
 # ----------------------------------------------------------------------------
 
-col_logo, col_lang = st.columns([3, 1])
-with col_logo:
+with st.sidebar:
     if os.path.exists(LOGO_PATH):
-        st.image(LOGO_PATH, width=64)
-with col_lang:
+        st.image(LOGO_PATH, width=48)
+    st.markdown(f"**{t('title')}**")
+
+    if st.button(t("tab_scanner"), use_container_width=True):
+        st.session_state.view = "scanner"
+        st.rerun()
+    if st.button(t("tab_history"), use_container_width=True):
+        st.session_state.view = "collection"
+        st.rerun()
+
+    st.markdown("---")
+
     lang_choice = st.selectbox(
         t("lang_label"),
         options=["fr", "en"],
         format_func=lambda x: "🇫🇷 Français" if x == "fr" else "🇬🇧 English",
         index=0 if st.session_state.lang == "fr" else 1,
-        label_visibility="collapsed",
     )
     if lang_choice != st.session_state.lang:
         st.session_state.lang = lang_choice
         st.rerun()
 
+    with st.expander(t("about_title")):
+        st.markdown(t("about_text"))
+
+    with st.expander(t("privacy_title")):
+        st.markdown(t("privacy_text"))
+
+    with st.expander(t("terms_title")):
+        st.markdown(t("terms_text"))
+
+    with st.expander(t("premium_title")):
+        if user_is_premium:
+            st.success(t("premium_active_msg", email=user_email))
+        else:
+            st.markdown(t("premium_text"))
+            for plan in PLANS:
+                quota_txt = t("plan_unlimited") if plan["quota"] is None else t("plan_quota", n=plan["quota"])
+                st.markdown(f"**{plan['name']} — ${plan['price']}/mois** · {quota_txt}")
+                wa_message = f"Bonjour, je veux le plan {plan['name']} (${plan['price']}) pour {t('title')}"
+                wa_url = f"https://wa.me/{WHATSAPP_NUMBER}?text={urllib.parse.quote(wa_message)}"
+                st.link_button(t("pay_button"), wa_url, use_container_width=True)
+                st.write("")
+
+            st.markdown("---")
+            st.markdown(f"**{t('already_paid_title')}**")
+            check_email = st.text_input(t("email_input_label"), key="check_email_input", placeholder="toi@exemple.com")
+            if st.button(t("already_paid_button"), use_container_width=True):
+                clean_check_email = check_email.strip().lower()
+                if is_premium(clean_check_email):
+                    st.session_state.user_email = clean_check_email
+                    st.rerun()
+                else:
+                    st.info(t("not_premium_yet"))
+
+    with st.expander(t("stats_title")):
+        stats_rows = get_stats_by_year()
+        if not stats_rows:
+            st.write("—")
+        else:
+            st.markdown(
+                f"| {t('stats_year')} | {t('stats_visits')} | {t('stats_scans')} |\n"
+                f"|---|---|---|\n"
+                + "\n".join(f"| {y} | {v} | {s} |" for y, v, s in stats_rows)
+            )
+
+    if "ADMIN_PASSWORD" in st.secrets:
+        with st.expander(t("admin_title")):
+            admin_pw = st.text_input(t("admin_password_label"), type="password", key="admin_pw_input")
+            if admin_pw:
+                if admin_pw == st.secrets["ADMIN_PASSWORD"]:
+                    st.markdown(f"**{t('admin_activate_title')}**")
+                    activate_email = st.text_input(t("email_input_label"), key="activate_email_input")
+                    plan_names = [p["name"] for p in PLANS]
+                    chosen_plan_name = st.selectbox(t("admin_plan_label"), plan_names, key="activate_plan_select")
+                    chosen_plan = next(p for p in PLANS if p["name"] == chosen_plan_name)
+                    if st.button(t("admin_approve_button"), use_container_width=True):
+                        clean_activate_email = activate_email.strip().lower()
+                        if re.match(EMAIL_REGEX, clean_activate_email):
+                            activate_premium(clean_activate_email, chosen_plan["name"], chosen_plan["quota"])
+                            st.success(t("admin_claim_approved"))
+                        else:
+                            st.warning(t("email_invalid"))
+                else:
+                    st.error(t("admin_wrong_password"))
+
+# ----------------------------------------------------------------------------
+# HEADER (zone principale)
+# ----------------------------------------------------------------------------
+
 st.markdown(f'<div class="hero-title">{t("title")}</div>', unsafe_allow_html=True)
-st.markdown(
-    f'<div class="hero-sub">{t("subtitle")}</div>',
-    unsafe_allow_html=True,
-)
+st.markdown(f'<div class="hero-sub">{t("subtitle")}</div>', unsafe_allow_html=True)
 
 total_scans = get_total_scans()
-scans_this_month = get_scans_this_month(user_email)
-remaining = max(0, FREE_SCANS_PER_MONTH - scans_this_month)
-
 col_a, col_b = st.columns(2)
 with col_a:
     st.markdown(f'<span class="stat-pill">{t("stat_scans", n=total_scans)}</span>', unsafe_allow_html=True)
 with col_b:
-    if user_is_premium:
+    if user_is_premium and quota is None:
         st.markdown(f'<span class="stat-pill">{t("premium_badge")}</span>', unsafe_allow_html=True)
     else:
-        st.markdown(f'<span class="stat-pill">{t("stat_free", remaining=remaining, total=FREE_SCANS_PER_MONTH)}</span>', unsafe_allow_html=True)
+        st.markdown(f'<span class="stat-pill">{t("stat_free", remaining=remaining, total=quota)}</span>', unsafe_allow_html=True)
 
 st.write("")
 
-tab_scan, tab_history, tab_info = st.tabs([t("tab_scanner"), t("tab_history"), t("tab_info")])
-
 # ----------------------------------------------------------------------------
-# ONGLET SCANNER
+# VUE SCANNER (ecran principal par defaut)
 # ----------------------------------------------------------------------------
 
-with tab_scan:
+if st.session_state.view == "scanner":
+    if get_total_scans() == 0 or not user_email:
+        step_html = """
+        <div class="step-row">
+            <div class="step-card">
+                <div class="step-emoji">📷</div>
+                <div class="step-num">1</div>
+                <div class="step-text">{s1}</div>
+            </div>
+            <div class="step-arrow">→</div>
+            <div class="step-card">
+                <div class="step-emoji">🤖</div>
+                <div class="step-num">2</div>
+                <div class="step-text">{s2}</div>
+            </div>
+            <div class="step-arrow">→</div>
+            <div class="step-card">
+                <div class="step-emoji">✅</div>
+                <div class="step-num">3</div>
+                <div class="step-text">{s3}</div>
+            </div>
+        </div>
+        """.format(s1=t("home_step1"), s2=t("home_step2"), s3=t("home_step3"))
+        st.markdown(step_html, unsafe_allow_html=True)
+        st.write("")
+
     if "GEMINI_API_KEY" not in st.secrets:
         st.error(t("missing_key"))
 
@@ -759,28 +985,39 @@ with tab_scan:
     if uploaded_file is not None:
         st.image(uploaded_file, use_container_width=True)
 
-    identify_disabled = uploaded_file is None or (not user_is_premium and remaining <= 0)
-
-    if not user_is_premium and remaining <= 0 and uploaded_file is not None:
-        st.warning(t("stat_free", remaining=0, total=FREE_SCANS_PER_MONTH))
-
-    if st.button(t("identify_button"), type="primary", disabled=identify_disabled, use_container_width=True):
-        if "GEMINI_API_KEY" not in st.secrets:
-            st.stop()
-
-        with st.spinner(t("spinner_text")):
-            image_bytes = uploaded_file.getvalue()
-            media_type = uploaded_file.type or "image/jpeg"
-            try:
-                data, image_b64 = identify_object(image_bytes, media_type, context_input)
-                save_scan(context_input, data, image_b64, user_email)
-                st.session_state.last_result = data
+    if not user_email:
+        st.info(t("need_email_text"))
+        gate_email = st.text_input(t("email_input_label"), placeholder="toi@exemple.com", key="gate_email_input")
+        if st.button(t("email_submit"), type="primary", use_container_width=True):
+            clean_gate_email = gate_email.strip().lower()
+            if re.match(EMAIL_REGEX, clean_gate_email):
+                st.session_state.user_email = clean_gate_email
                 st.rerun()
-            except Exception as e:
-                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                    st.warning(t("rate_limit_warning"))
-                else:
-                    st.error(t("generic_error", e=e))
+            else:
+                st.warning(t("email_invalid"))
+    else:
+        identify_disabled = uploaded_file is None or (not user_is_premium and remaining is not None and remaining <= 0)
+
+        if not user_is_premium and remaining is not None and remaining <= 0 and uploaded_file is not None:
+            st.warning(t("stat_free", remaining=0, total=quota))
+
+        if st.button(t("identify_button"), type="primary", disabled=identify_disabled, use_container_width=True):
+            if "GEMINI_API_KEY" not in st.secrets:
+                st.stop()
+
+            with st.spinner(t("spinner_text")):
+                image_bytes = uploaded_file.getvalue()
+                media_type = uploaded_file.type or "image/jpeg"
+                try:
+                    data, image_b64 = identify_object(image_bytes, media_type, context_input)
+                    save_scan(context_input, data, image_b64, user_email)
+                    st.session_state.last_result = data
+                    st.rerun()
+                except Exception as e:
+                    if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                        st.warning(t("rate_limit_warning"))
+                    else:
+                        st.error(t("generic_error", e=e))
 
     if st.session_state.last_result:
         data = st.session_state.last_result
@@ -846,87 +1083,34 @@ with tab_scan:
             )
 
 # ----------------------------------------------------------------------------
-# ONGLET HISTORIQUE
+# VUE COLLECTION
 # ----------------------------------------------------------------------------
 
-with tab_history:
-    history = get_history(user_email)
-
-    if not history:
+elif st.session_state.view == "collection":
+    if not user_email:
         st.info(t("history_empty"))
     else:
-        for row in history:
-            scan_id, created_at, name, category, why_text, how_steps_json, warning_text, image_b64 = row
-            with st.expander(f"{name}  —  {created_at[:16].replace('T', ' ')}"):
-                c1, c2 = st.columns([1, 2])
-                with c1:
-                    if image_b64:
-                        st.image(base64.b64decode(image_b64), use_container_width=True)
-                with c2:
-                    st.markdown(f"{t('history_category')} {category}")
-                    st.markdown(f"{t('history_why')} {why_text}")
-                    try:
-                        steps = json.loads(how_steps_json)
-                    except (json.JSONDecodeError, TypeError):
-                        steps = []
-                    if steps:
-                        st.markdown(t("history_how"))
-                        for s in steps:
-                            st.markdown(f"- {s}")
-                    if warning_text:
-                        st.markdown(f"⚠️ {warning_text}")
-
-# ----------------------------------------------------------------------------
-# ONGLET INFOS (À propos / Confidentialité / Conditions / Statistiques)
-# ----------------------------------------------------------------------------
-
-with tab_info:
-    with st.expander(t("about_title"), expanded=True):
-        st.markdown(t("about_text"))
-
-    with st.expander(t("privacy_title")):
-        st.markdown(t("privacy_text"))
-
-    with st.expander(t("terms_title")):
-        st.markdown(t("terms_text"))
-
-    with st.expander(t("stats_title")):
-        stats_rows = get_stats_by_year()
-        if not stats_rows:
-            st.write("—")
+        history = get_history(user_email)
+        if not history:
+            st.info(t("history_empty"))
         else:
-            st.markdown(
-                f"| {t('stats_year')} | {t('stats_visits')} | {t('stats_scans')} |\n"
-                f"|---|---|---|\n"
-                + "\n".join(f"| {y} | {v} | {s} |" for y, v, s in stats_rows)
-            )
-
-    if not user_is_premium:
-        with st.expander(t("premium_title")):
-            st.markdown(t("premium_text"))
-            st.markdown(t("premium_instructions"))
-            claim_code = st.text_input(t("transaction_code_label"), key="claim_code_input")
-            if st.button(t("submit_claim_button"), use_container_width=True):
-                submit_payment_claim(user_email, claim_code.strip())
-                st.success(t("claim_submitted_msg"))
-
-    if "ADMIN_PASSWORD" in st.secrets:
-        with st.expander(t("admin_title")):
-            admin_pw = st.text_input(t("admin_password_label"), type="password", key="admin_pw_input")
-            if admin_pw:
-                if admin_pw == st.secrets["ADMIN_PASSWORD"]:
-                    claims = get_pending_claims()
-                    if not claims:
-                        st.write(t("admin_no_claims"))
-                    else:
-                        for claim_id, created_at, claim_email, code in claims:
-                            c1, c2 = st.columns([3, 1])
-                            with c1:
-                                st.write(f"{claim_email} — `{code}` — {created_at[:16].replace('T', ' ')}")
-                            with c2:
-                                if st.button(t("admin_approve_button"), key=f"approve_{claim_id}"):
-                                    activate_premium(claim_email)
-                                    st.success(t("admin_claim_approved"))
-                                    st.rerun()
-                else:
-                    st.error(t("admin_wrong_password"))
+            for row in history:
+                scan_id, created_at, name, category, why_text, how_steps_json, warning_text, image_b64 = row
+                with st.expander(f"{name}  —  {created_at[:16].replace('T', ' ')}"):
+                    c1, c2 = st.columns([1, 2])
+                    with c1:
+                        if image_b64:
+                            st.image(base64.b64decode(image_b64), use_container_width=True)
+                    with c2:
+                        st.markdown(f"{t('history_category')} {category}")
+                        st.markdown(f"{t('history_why')} {why_text}")
+                        try:
+                            steps = json.loads(how_steps_json)
+                        except (json.JSONDecodeError, TypeError):
+                            steps = []
+                        if steps:
+                            st.markdown(t("history_how"))
+                            for s in steps:
+                                st.markdown(f"- {s}")
+                        if warning_text:
+                            st.markdown(f"⚠️ {warning_text}")
