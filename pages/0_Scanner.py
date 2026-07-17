@@ -6,7 +6,7 @@ import os
 import re
 import streamlit as st
 from common import (
-    LOGO_PATH, EMAIL_REGEX, t, init_session_state, apply_style,
+    EMAIL_REGEX, t, init_session_state, apply_style,
     log_visit, get_total_scans, get_usage_status,
     has_secret, identify_object, save_scan,
 )
@@ -21,11 +21,6 @@ user_is_premium, remaining, quota, plan_name = get_usage_status(user_email)
 # ----------------------------------------------------------------------------
 # HEADER
 # ----------------------------------------------------------------------------
-
-if os.path.exists(LOGO_PATH):
-    col_l, col_c, col_r = st.columns([1, 1, 1])
-    with col_c:
-        st.image(LOGO_PATH, use_container_width=True)
 
 st.markdown(f'<div class="hero-title">{t("title")}</div>', unsafe_allow_html=True)
 st.markdown(f'<div class="hero-sub">{t("subtitle")}</div>', unsafe_allow_html=True)
