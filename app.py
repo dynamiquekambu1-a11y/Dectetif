@@ -29,7 +29,7 @@ st.set_page_config(
     page_title="C'est Quoi Ça ?",
     page_icon=_page_icon,
     layout="centered",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 # ----------------------------------------------------------------------------
@@ -459,8 +459,18 @@ st.markdown(
             color: #1F2937 !important;
         }
 
-        input, textarea {
+        input, textarea,
+        [data-baseweb="input"],
+        [data-baseweb="textarea"],
+        [data-baseweb="base-input"] {
             color: #1F2937 !important;
+            background-color: #FFFFFF !important;
+            -webkit-text-fill-color: #1F2937 !important;
+        }
+
+        [data-baseweb="select"] > div {
+            color: #1F2937 !important;
+            background-color: #FFFFFF !important;
         }
 
         .step-row {
@@ -923,6 +933,11 @@ with st.sidebar:
 # HEADER (zone principale)
 # ----------------------------------------------------------------------------
 
+if os.path.exists(LOGO_PATH):
+    col_logo_l, col_logo_c, col_logo_r = st.columns([1, 1, 1])
+    with col_logo_c:
+        st.image(LOGO_PATH, use_container_width=True)
+
 st.markdown(f'<div class="hero-title">{t("title")}</div>', unsafe_allow_html=True)
 st.markdown(f'<div class="hero-sub">{t("subtitle")}</div>', unsafe_allow_html=True)
 
@@ -944,28 +959,45 @@ st.write("")
 
 if st.session_state.view == "scanner":
     if get_total_scans() == 0 or not user_email:
-        step_html = """
-        <div class="step-row">
-            <div class="step-card">
-                <div class="step-emoji">📷</div>
-                <div class="step-num">1</div>
-                <div class="step-text">{s1}</div>
+        def find_step_image(n):
+            for ext in ("jpg", "jpeg", "png"):
+                path = f"step{n}.{ext}"
+                if os.path.exists(path):
+                    return path
+            return None
+
+        step_images = [find_step_image(1), find_step_image(2), find_step_image(3)]
+        step_texts = [t("home_step1"), t("home_step2"), t("home_step3")]
+
+        if all(step_images):
+            cols = st.columns(3)
+            for col, img_path, txt in zip(cols, step_images, step_texts):
+                with col:
+                    st.image(img_path, use_container_width=True)
+                    st.caption(txt)
+        else:
+            step_html = """
+            <div class="step-row">
+                <div class="step-card">
+                    <div class="step-emoji">📷</div>
+                    <div class="step-num">1</div>
+                    <div class="step-text">{s1}</div>
+                </div>
+                <div class="step-arrow">→</div>
+                <div class="step-card">
+                    <div class="step-emoji">🤖</div>
+                    <div class="step-num">2</div>
+                    <div class="step-text">{s2}</div>
+                </div>
+                <div class="step-arrow">→</div>
+                <div class="step-card">
+                    <div class="step-emoji">✅</div>
+                    <div class="step-num">3</div>
+                    <div class="step-text">{s3}</div>
+                </div>
             </div>
-            <div class="step-arrow">→</div>
-            <div class="step-card">
-                <div class="step-emoji">🤖</div>
-                <div class="step-num">2</div>
-                <div class="step-text">{s2}</div>
-            </div>
-            <div class="step-arrow">→</div>
-            <div class="step-card">
-                <div class="step-emoji">✅</div>
-                <div class="step-num">3</div>
-                <div class="step-text">{s3}</div>
-            </div>
-        </div>
-        """.format(s1=t("home_step1"), s2=t("home_step2"), s3=t("home_step3"))
-        st.markdown(step_html, unsafe_allow_html=True)
+            """.format(s1=t("home_step1"), s2=t("home_step2"), s3=t("home_step3"))
+            st.markdown(step_html, unsafe_allow_html=True)
         st.write("")
 
     if "GEMINI_API_KEY" not in st.secrets:
