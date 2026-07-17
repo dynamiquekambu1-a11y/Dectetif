@@ -2,15 +2,13 @@ import re
 import urllib.parse
 import streamlit as st
 from common import (
-    t, init_session_state, apply_style, render_lang_selector,
+    t, init_session_state, apply_style,
     PLANS, WHATSAPP_NUMBER, EMAIL_REGEX, is_premium, get_usage_status,
 )
 
-st.set_page_config(page_title="Plans", page_icon="⭐", layout="centered")
 
 init_session_state()
 apply_style()
-render_lang_selector()
 
 st.markdown(f'<div class="hero-title">{t("premium_title")}</div>', unsafe_allow_html=True)
 st.write("")
