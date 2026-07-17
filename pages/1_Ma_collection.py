@@ -1,11 +1,13 @@
 import json
 import base64
 import streamlit as st
-from common import t, init_session_state, apply_style, get_history
+from common import t, init_session_state, apply_style, render_lang_selector, get_history
 
+st.set_page_config(page_title="Ma collection", page_icon="🗂️", layout="centered")
 
 init_session_state()
 apply_style()
+render_lang_selector()
 
 st.markdown(f'<div class="hero-title">{t("nav_collection")}</div>', unsafe_allow_html=True)
 st.write("")
